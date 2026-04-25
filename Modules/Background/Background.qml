@@ -30,6 +30,8 @@ Variants {
       readonly property real edgeSmoothness: Settings.data.wallpaper.transitionEdgeSmoothness
       readonly property var allTransitions: WallpaperService.allTransitions
       readonly property bool transitioning: transitionAnimation.running
+      property bool transitionRenderActive: false
+      property bool waitingForCurrentWallpaperCommit: false
 
       // Wipe direction: 0=left, 1=right, 2=up, 3=down
       property real wipeDirection: 0
@@ -58,6 +60,8 @@ Variants {
       // Fillmode default is "crop"
       property real fillMode: WallpaperService.getFillModeUniform()
       property vector4d fillColor: Qt.vector4d(Settings.data.wallpaper.fillColor.r, Settings.data.wallpaper.fillColor.g, Settings.data.wallpaper.fillColor.b, 1.0)
+      readonly property color idleFillColor: Settings.data.wallpaper.fillColor
+      readonly property int idleImageFillMode: getIdleImageFillMode()
 
       // Solid color mode - track whether current/next are solid colors
       property bool isSolid1: false
@@ -73,6 +77,7 @@ Variants {
         transitionAnimation.stop();
         startupTransitionTimer.stop();
         debounceTimer.stop();
+        transitionRenderActive = false;
         shaderLoader.active = false;
         currentWallpaper.source = "";
         nextWallpaper.source = "";
@@ -152,20 +157,42 @@ Variants {
         onTriggered: _executeStartupTransition()
       }
 
+      Rectangle {
+        anchors.fill: parent
+        color: root.idleFillColor
+        visible: wallpaperReady && !transitionRenderActive && !isSolid1
+      }
+
+      Rectangle {
+        anchors.fill: parent
+        color: root._solidColor1
+        visible: wallpaperReady && !transitionRenderActive && isSolid1
+      }
+
       Image {
         id: currentWallpaper
 
+        anchors.fill: parent
         source: ""
+        fillMode: root.idleImageFillMode
+        horizontalAlignment: Image.AlignHCenter
+        verticalAlignment: Image.AlignVCenter
         smooth: true
         mipmap: false
-        visible: false
+        visible: wallpaperReady && !transitionRenderActive && !isSolid1 && source !== ""
         cache: true // Cached so Overview can share the same texture
         asynchronous: true
         onStatusChanged: {
           if (status === Image.Error) {
             Logger.w("Current wallpaper failed to load:", source);
+            if (waitingForCurrentWallpaperCommit) {
+              _finishTransitionCleanup();
+            }
           } else if (status === Image.Ready && !wallpaperReady) {
             wallpaperReady = true;
+          }
+          if (status === Image.Ready && waitingForCurrentWallpaperCommit) {
+            _finishTransitionCleanup();
           }
         }
       }
@@ -191,6 +218,7 @@ Variants {
             }
             if (pendingTransition) {
               pendingTransition = false;
+              transitionRenderActive = true;
               currentWallpaper.asynchronous = false;
               transitionAnimation.start();
             }
@@ -202,7 +230,7 @@ Variants {
       Loader {
         id: shaderLoader
         anchors.fill: parent
-        active: true
+        active: transitionRenderActive
 
         sourceComponent: {
           switch (transitionType) {
@@ -444,18 +472,17 @@ Variants {
 
           // Assign new image to current BEFORE clearing to prevent flicker
           const tempSource = nextWallpaper.source;
-          currentWallpaper.source = tempSource;
+          if (isSolid1) {
+            currentWallpaper.source = "";
+          } else {
+            waitingForCurrentWallpaperCommit = true;
+            currentWallpaper.source = tempSource;
+          }
           transitionProgress = 0.0;
 
-          // Now clear nextWallpaper after currentWallpaper has the new source
-          // Force complete cleanup to free texture memory
-          Qt.callLater(() => {
-                         nextWallpaper.source = "";
-                         isSolid2 = false;
-                         Qt.callLater(() => {
-                                        currentWallpaper.asynchronous = true;
-                                      });
-                       });
+          if (isSolid1 || (waitingForCurrentWallpaperCommit && currentWallpaper.status === Image.Ready)) {
+            _finishTransitionCleanup();
+          }
         }
       }
 
@@ -469,6 +496,39 @@ Variants {
           return s.substring(7);
         }
         return s;
+      }
+
+      function getIdleImageFillMode() {
+        switch (Settings.data.wallpaper.fillMode) {
+        case "center":
+          return Image.Pad;
+        case "crop":
+          return Image.PreserveAspectCrop;
+        case "fit":
+          return Image.PreserveAspectFit;
+        case "stretch":
+          return Image.Stretch;
+        case "repeat":
+          return Image.Tile;
+        default:
+          return Image.PreserveAspectCrop;
+        }
+      }
+
+      function _finishTransitionCleanup() {
+        waitingForCurrentWallpaperCommit = false;
+        transitionRenderActive = false;
+
+        // Clear nextWallpaper after the committed idle renderer is visible.
+        // This frees the temporary transition texture without exposing a blank frame.
+        Qt.callLater(() => {
+                       nextWallpaper.pendingTransition = false;
+                       nextWallpaper.source = "";
+                       isSolid2 = false;
+                       Qt.callLater(() => {
+                                      currentWallpaper.asynchronous = true;
+                                    });
+                     });
       }
 
       // ------------------------------------------------------
@@ -569,6 +629,9 @@ Variants {
       function setWallpaperImmediate(source) {
         transitionAnimation.stop();
         transitionProgress = 0.0;
+        transitionRenderActive = false;
+        waitingForCurrentWallpaperCommit = false;
+        nextWallpaper.pendingTransition = false;
 
         // Check if this is a solid color
         var isSolidSource = WallpaperService.isSolidColorPath(source);
@@ -591,11 +654,7 @@ Variants {
         nextWallpaper.source = "";
         nextWallpaper.sourceSize = undefined;
 
-        currentWallpaper.source = "";
-
-        Qt.callLater(() => {
-                       currentWallpaper.source = source;
-                     });
+        currentWallpaper.source = source;
       }
 
       // ------------------------------------------------------
@@ -623,19 +682,24 @@ Variants {
 
         if (transitioning) {
           // We are interrupting a transition - handle cleanup properly
+          transitionRenderActive = true;
           transitionAnimation.stop();
           transitionProgress = 0;
+          waitingForCurrentWallpaperCommit = false;
 
           // Transfer next state to current
           isSolid1 = isSolid2;
           _solidColor1 = _solidColor2;
           const newCurrentSource = nextWallpaper.source;
-          currentWallpaper.source = newCurrentSource;
+          currentWallpaper.source = isSolid1 ? "" : newCurrentSource;
 
           // Now clear nextWallpaper after current has the new source
           Qt.callLater(() => {
+                         nextWallpaper.pendingTransition = false;
                          nextWallpaper.source = "";
                          isSolid2 = false;
+                         currentWallpaper.asynchronous = true;
+                         transitionRenderActive = false;
 
                          // Now set the next wallpaper after a brief delay
                          Qt.callLater(() => {
@@ -661,6 +725,7 @@ Variants {
             wallpaperReady = true;
           }
           currentWallpaper.asynchronous = false;
+          transitionRenderActive = true;
           transitionAnimation.start();
         } else {
           nextWallpaper.source = source;
@@ -669,6 +734,7 @@ Variants {
               wallpaperReady = true;
             }
             currentWallpaper.asynchronous = false;
+            transitionRenderActive = true;
             transitionAnimation.start();
           } else {
             nextWallpaper.pendingTransition = true;
