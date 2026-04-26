@@ -101,7 +101,7 @@ Loader {
         cache: true // Shares texture with Background's currentWallpaper
         asynchronous: true
 
-        layer.enabled: Settings.data.wallpaper.overviewBlur > 0 && !PowerProfileService.noctaliaPerformanceMode
+        layer.enabled: Settings.data.wallpaper.overviewBlur > 0 && Style.effectiveBlurBehindEnabled
         layer.smooth: false
         layer.effect: MultiEffect {
           blurEnabled: true

@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Effects
 import qs.Commons
-import qs.Services.Power
 
 // Unified shadow system
 Item {
@@ -16,7 +15,7 @@ Item {
   property color shadowColor: "black"
   property real shadowBlur: Style.shadowBlur
 
-  layer.enabled: Settings.data.general.enableShadows && !PowerProfileService.noctaliaPerformanceMode
+  layer.enabled: Style.effectiveShadowsEnabled
   layer.effect: MultiEffect {
     source: root.source
     shadowEnabled: true

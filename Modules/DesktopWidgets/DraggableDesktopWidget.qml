@@ -305,7 +305,7 @@ Item {
     clip: true
     visible: root.showBackground
 
-    layer.enabled: Settings.data.general.enableShadows && !internal.isDragging && root.showBackground
+    layer.enabled: Style.effectiveShadowsEnabled && !internal.isDragging && root.showBackground
     layer.effect: MultiEffect {
       shadowEnabled: true
       shadowBlur: Style.shadowBlur * 1.5
