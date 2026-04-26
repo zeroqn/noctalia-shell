@@ -74,6 +74,7 @@ Singleton {
 
   readonly property real effectivePanelOpacity: PowerProfileService.noctaliaPerformanceMode ? 1.0 : Color.adaptiveOpacity(Settings.data.ui.panelBackgroundOpacity)
   readonly property real effectiveBarOpacity: PowerProfileService.noctaliaPerformanceMode ? 1.0 : Settings.data.bar.backgroundOpacity
+  readonly property bool effectiveBlurBehindEnabled: Settings.data.general.enableBlurBehind && !PowerProfileService.noctaliaPerformanceMode
 
   // Shadows
   readonly property real shadowOpacity: 0.85

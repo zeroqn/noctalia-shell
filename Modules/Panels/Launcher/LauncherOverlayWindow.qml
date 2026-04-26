@@ -40,7 +40,7 @@ Variants {
       WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.exclusionMode: ExclusionMode.Ignore
 
-      BackgroundEffect.blurRegion: Settings.data.general.enableBlurBehind ? launcherBlurRegion : null
+      BackgroundEffect.blurRegion: Style.effectiveBlurBehindEnabled ? launcherBlurRegion : null
       Region {
         id: launcherBlurRegion
 
